@@ -96,6 +96,10 @@ public class Updater extends Game {
 			System.out.println(tickCount);
 			Music.PlayRandomMusic();
 		}
+		if(tickCount==32400){
+			System.out.println(tickCount);
+			Music.PlayRandomMusic();
+		}
 		if (input.getMappedKey("FULLSCREEN").isClicked()) {
 			Updater.FULLSCREEN = !Updater.FULLSCREEN;
 			Updater.updateFullscreen();
