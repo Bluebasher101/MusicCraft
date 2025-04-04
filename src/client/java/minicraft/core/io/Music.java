@@ -8,8 +8,8 @@ import javax.sound.sampled.Clip;
 import minicraft.core.io.FileHandler;
 import java.util.Random;
 public class Music{
-    public static String filepath =FileHandler.getSystemGameDir() + "/playminicraft/mods/Minicraft_Plus/music/";
-    public static File musiclist = new File(FileHandler.getSystemGameDir() + "/playminicraft/mods/Minicraft_Plus/music/");
+    public static String filepath =FileHandler.getSystemGameDir() + FileHandler.getLocalGameDir()+"/music/";
+    public static File musiclist = new File(FileHandler.getSystemGameDir() + FileHandler.getLocalGameDir()+"/music/");
     private static Clip clip;
     public static String theme= "Forest.wav";
     public static String[] songlist;
@@ -21,6 +21,7 @@ public class Music{
         PlayMusic(theme);
     }
     public static void PlayRandomMusic(){
+        
         if(musiclist.list() ==null ) return;
         if(songlist==null){
             songlist = musiclist.list();
