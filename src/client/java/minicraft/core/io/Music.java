@@ -28,7 +28,7 @@ public class Music{
         }
         if(songlist.length<=0 ) return;
         if(songlist.length==1){
-            LoopMusic(songlist[0]);
+           PlayMusic(songlist[0]);
         }else{
         if(songlist!=null){
             Random r= new Random();
