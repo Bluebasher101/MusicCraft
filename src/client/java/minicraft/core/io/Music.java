@@ -24,9 +24,10 @@ public class Music{
         if(musiclist.list() ==null ) return;
         if(songlist==null){
             songlist = musiclist.list();
+            if(songlist==null || songlist.length<=0 ) return;
             songlist = Arrays.stream(songlist).filter(name -> name.endsWith(".wav")|| name.endsWith(".mp3")).toArray(String[]::new);
         }
-        if(songlist.length<=0 ) return;
+        
         if(songlist.length==1){
            PlayMusic(songlist[0]);
         }else{
@@ -43,9 +44,10 @@ public class Music{
         
         if(songlist==null){
             songlist = musiclist.list();
+            if(songlist==null || songlist.length<=0 ) return;
             songlist = Arrays.stream(songlist).filter(name -> name.endsWith(".wav")|| name.endsWith(".mp3")).toArray(String[]::new);
         }
-        if(songlist.length<=0 ) return;
+        
         if(songlist.length==1){
              LoopMusic(songlist[0]);
         }else{
