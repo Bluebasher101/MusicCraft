@@ -92,15 +92,12 @@ public class Updater extends Game {
 	// VERY IMPORTANT METHOD!! Makes everything keep happening.
 	// In the end, calls menu.tick() if there's a menu, or level.tick() if no menu.
 	public static void tick() {
-		System.out.println(tickCount);
-		if(tickCount==4500){
-			System.out.println(tickCount);
+		
+		if(tickCount == 3600|| tickCount==21600 || tickCount==21600*2){
+			 
 			Music.PlayRandomMusic();
 		}
-		if(tickCount==32400){
-			System.out.println(tickCount);
-			Music.PlayRandomMusic();
-		}
+		
 		if (input.getMappedKey("FULLSCREEN").isClicked()) {
 			Updater.FULLSCREEN = !Updater.FULLSCREEN;
 			Updater.updateFullscreen();
