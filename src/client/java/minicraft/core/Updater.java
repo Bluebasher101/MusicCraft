@@ -93,7 +93,7 @@ public class Updater extends Game {
 	// In the end, calls menu.tick() if there's a menu, or level.tick() if no menu.
 	public static void tick() {
 		
-		if(tickCount == 3600|| tickCount==21600 || tickCount==21600*2){
+		if(tickCount == 3600|| tickCount==21600 || tickCount==39600){
 			 
 			Music.PlayRandomMusic();
 		}

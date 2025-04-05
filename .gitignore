@@ -1,6 +1,7 @@
 src/client/build/
 src/common/build/
 src/client/logs/
+src/.DS_Store
 logs/
 .DS_Store 
 .gradle/
