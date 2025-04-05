@@ -3,3 +3,5 @@ src/common/build/
 src/client/logs/
 logs/
 .DS_Store 
+.gradle/
+gradle
