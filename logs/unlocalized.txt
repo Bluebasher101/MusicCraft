@@ -1,2 +1,0 @@
-[Localization.java#L51] [minicraft.core.io.Localization#getLocalized]:  en-US: 'Time: 0m 56s' is unlocalized.
-[Localization.java#L51] [minicraft.core.io.Localization#getLocalized]:  en-US: 'Score: 10' is unlocalized.
