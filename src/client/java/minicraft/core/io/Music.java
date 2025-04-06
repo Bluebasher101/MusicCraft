@@ -26,12 +26,12 @@ public class Music{
         if(songlist==null){
             songlist = musiclist.list();
             if(songlist==null || songlist.length<=0 ) return;
-            songlist = Arrays.stream(songlist).filter(name -> name.endsWith(".wav")|| name.endsWith(".mp3")).toArray(String[]::new);
+            songlist = Arrays.stream(songlist).filter(name -> name.endsWith(".wav")).toArray(String[]::new);
         }
         
         if(songlist.length==1){
            PlayMusic(songlist[0]);
-        }else{
+        }else if(songlist.length>1){
         if(songlist!=null){
             Random r= new Random();
             PlayMusic(songlist[r.nextInt(songlist.length-1)]);
@@ -46,12 +46,12 @@ public class Music{
         if(songlist==null){
             songlist = musiclist.list();
             if(songlist==null || songlist.length<=0 ) return;
-            songlist = Arrays.stream(songlist).filter(name -> name.endsWith(".wav")|| name.endsWith(".mp3")).toArray(String[]::new);
+            songlist = Arrays.stream(songlist).filter(name -> name.endsWith(".wav")).toArray(String[]::new);
         }
         
         if(songlist.length==1){
              LoopMusic(songlist[0]);
-        }else{
+        }else if(songlist.length>1){
         if(songlist!=null){
             Random r= new Random();
             LoopMusic(songlist[r.nextInt(songlist.length-1)]);
