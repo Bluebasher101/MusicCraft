@@ -7,7 +7,6 @@ import minicraft.util.TinylogLoggingProvider;
 import org.jetbrains.annotations.Nullable;
 import org.tinylog.provider.ProviderRegistry;
 
-
 import javax.imageio.ImageIO;
 import javax.swing.JFrame;
 import javax.swing.WindowConstants;
@@ -78,7 +77,6 @@ public class Initializer extends Game {
 	 * -fires the command to render out the screen.
 	 */
 	static void run() {
-		
 		long lastTick = System.nanoTime();
 		long lastRender = System.nanoTime();
 		double unprocessed = 0;
@@ -192,7 +190,6 @@ public class Initializer extends Game {
 		frame.setVisible(true);
 		frame.requestFocus();
 		Renderer.canvas.requestFocus();
-		
 	}
 
 	/**

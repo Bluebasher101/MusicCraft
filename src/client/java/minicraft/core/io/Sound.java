@@ -24,8 +24,6 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Optional;
 
-
-
 public class Sound {
 	// Creates sounds from their respective files
 	private static final HashMap<String, Sound> sounds = new HashMap<>();
@@ -150,7 +148,6 @@ public class Sound {
 	public static Sound getSound(String key) {
 		return sounds.get(key);
 	}
-	
 
 	/**
 	 * This method does safe check for {@link #play()}.
@@ -158,10 +155,7 @@ public class Sound {
 	public static void play(String key) {
 		Sound sound = sounds.get(key);
 		if (sound != null) sound.play();
-
 	}
-	
-	
 
 	/**
 	 * This method does safe check for {@link #loop(int)}.
@@ -170,7 +164,6 @@ public class Sound {
 		Sound sound = sounds.get(key);
 		if (sound != null) sound.loop(count);
 	}
-
 
 	public static void tick() {
 		dataLine.start();
@@ -248,8 +241,6 @@ public class Sound {
 		if (!(boolean) Settings.get("sound")) return;
 		pointers.add(new AudioPointer());
 	}
-	
-	
 
 	/** @deprecated no longer supported, but reserved for future implementation. */
 	@Deprecated

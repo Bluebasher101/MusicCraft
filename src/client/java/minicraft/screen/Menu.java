@@ -71,7 +71,6 @@ public class Menu {
 	private LinkedSprite hudSheet = new LinkedSprite(SpriteType.Gui, "hud");
 
 	private Menu() {
-		
 	}
 
 	protected Menu(Menu m) {
@@ -318,7 +317,6 @@ public class Menu {
 	}
 
 	public void render(Screen screen) {
-		
 		renderFrame(screen);
 
 		// render the title

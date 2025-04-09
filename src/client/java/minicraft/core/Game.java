@@ -6,7 +6,6 @@ import minicraft.core.io.Sound;
 import minicraft.entity.mob.Player;
 import minicraft.level.Level;
 import minicraft.level.tile.Tiles;
-import minicraft.network.Analytics;
 import minicraft.saveload.Load;
 import minicraft.saveload.Version;
 import minicraft.screen.Display;
@@ -14,11 +13,10 @@ import minicraft.screen.ResourcePackDisplay;
 import minicraft.screen.TitleDisplay;
 import minicraft.util.Logging;
 import org.jetbrains.annotations.Nullable;
-import minicraft.core.io.Music;
+
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.List;
-import minicraft.core.io.Music;
 
 public class Game {
 	protected Game() {
@@ -26,7 +24,7 @@ public class Game {
 
 	public static final String NAME = "Minicraft Plus"; // This is the name on the application window.
 
-	public static final Version VERSION = new Version("2.3.0-dev1");
+	public static final Version VERSION = new Version("2.3.0-infdev2");
 
 	public static InputHandler input; // Input used in Game, Player, and just about all the *Menu classes.
 	public static Player player;
@@ -40,16 +38,10 @@ public class Game {
 	static final ArrayDeque<Display> displayQuery = new ArrayDeque<>();
 
 	public static void setDisplay(@Nullable Display display) {
-		
-		if (display == null){
+		if (display == null)
 			displayQuery.clear();
-			
-		}else{
+		else
 			displayQuery.add(display);
-		}
-
-		
-
 	}
 
 	public static void exitDisplay() {
@@ -76,7 +68,6 @@ public class Game {
 
 	@Nullable
 	public static Display getDisplay() {
-		
 		return displayQuery.isEmpty() ? null : displayQuery.peekLast();
 	}
 
@@ -101,14 +92,10 @@ public class Game {
 
 
 	public static void main(String[] args) {
-		
-	
 		Thread.setDefaultUncaughtExceptionHandler(CrashHandler::crashHandle);
-		
+
 		Initializer.parseArgs(args); // Parses the command line arguments
 		// Applying Game#debug first.
-
-		Analytics.GameStartup.ping();
 
 		new Load(true, true); // This loads basic saved preferences.
 		// Reference: https://stackoverflow.com/a/13832805
@@ -137,12 +124,11 @@ public class Game {
 		if (Updater.FULLSCREEN) {
 			Updater.updateFullscreen();
 		}
-		
+
 		Initializer.launchWindow();
-		Music.PlayRandomMusicLoop();
 		// Actually start the game.
 		Initializer.run();
-		
+
 		Logging.GAMEHANDLER.debug("Main game loop ended; Terminating application...");
 		System.exit(0);
 	}

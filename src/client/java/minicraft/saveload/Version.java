@@ -7,6 +7,10 @@ public class Version implements Comparable<Version> {
 	private int make, major, minor, dev;
 	private boolean valid = true;
 
+	// Toggle if Version is Special (e.g.: infdev is different of normal dev)
+	private boolean isSpecial, curIsSpecial = true;
+	protected String specialPrefix = "infdev";
+
 	public Version(String version) {
 		this(version, true);
 	}
@@ -27,7 +31,9 @@ public class Version implements Comparable<Version> {
 			if (min.contains("-")) {
 				String[] mindev = min.split("-");
 				minor = Integer.parseInt(mindev[0]);
-				dev = Integer.parseInt(mindev[1].replace("pre", "").replace("dev", ""));
+				isSpecial = mindev[1].contains(specialPrefix);
+				if (isSpecial) dev = Integer.parseInt(mindev[1].replace("pre", "").replace(specialPrefix, ""));
+				else dev = Integer.parseInt(mindev[1].replace("pre", "").replace("dev", ""));
 			} else {
 				if (!min.equals("")) minor = Integer.parseInt(min);
 				else minor = 0;
@@ -40,6 +46,10 @@ public class Version implements Comparable<Version> {
 			if (printError) ex.printStackTrace();
 			valid = false;
 		}
+	}
+
+	public boolean isSpecial() {
+		return isSpecial;
 	}
 
 	public boolean isValid() {
@@ -86,7 +96,7 @@ public class Version implements Comparable<Version> {
 
 	@Override
 	public String toString() {
-		return make + "." + major + "." + minor + (dev == 0 ? "" : "-dev" + dev);
+		return make + "." + major + "." + minor + (!curIsSpecial ? (dev == 0 ? "" : "-dev" + dev) : (dev == 0 ? "" : "-" + specialPrefix + dev));
 	}
 
 	public int[] toArray() {

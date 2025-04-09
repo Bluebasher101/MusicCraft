@@ -1,10 +1,9 @@
 package minicraft.core;
-import minicraft.core.io.Sound;
+
 import minicraft.core.io.Settings;
 import minicraft.entity.furniture.Bed;
 import minicraft.entity.mob.Player;
 import minicraft.level.Level;
-import minicraft.network.Analytics;
 import minicraft.saveload.Load;
 import minicraft.screen.AchievementsDisplay;
 import minicraft.screen.CraftingDisplay;
@@ -19,7 +18,6 @@ import minicraft.util.AdvancementElement;
 import minicraft.util.Logging;
 import org.jetbrains.annotations.Nullable;
 import org.tinylog.Logger;
-import minicraft.core.io.Music;
 
 import java.util.Random;
 
@@ -106,11 +104,9 @@ public class World extends Game {
 	 * For the loading screen updates to work, it it assumed that *this* is called by a thread *other* than the one rendering the current *menu*.
 	 **/
 	public static void initWorld() { // This is a full reset; everything.
-		
 		Logging.WORLD.debug("Resetting world...");
 
 		PlayerDeathDisplay.shouldRespawn = false;
-		Music.StopMusic();
 		resetGame();
 		player = new Player(null, input);
 		Bed.removePlayers();
@@ -134,8 +130,6 @@ public class World extends Game {
 		if (WorldSelectDisplay.hasLoadedWorld()) {
 			new Load(WorldSelectDisplay.getWorldName());
 		} else {
-			Analytics.WorldCreation.ping();
-
 			worldSize = (Integer) Settings.get("size");
 
 			seed = WorldGenDisplay.getSeed().orElse(new Random().nextLong());
@@ -231,7 +225,6 @@ public class World extends Game {
 	 * Called when the world exits.
 	 */
 	public static void onWorldExits() {
-		Music.PlayRandomMusicLoop();
 		lastWorldExitTime = System.currentTimeMillis();
 	}
 

@@ -39,6 +39,7 @@ import minicraft.entity.mob.Zombie;
 import minicraft.entity.particle.FireParticle;
 import minicraft.entity.particle.SmashParticle;
 import minicraft.entity.particle.TextParticle;
+import minicraft.entity.vehicle.Boat;
 import minicraft.gfx.Color;
 import minicraft.gfx.Point;
 import minicraft.item.ArmorItem;
@@ -50,6 +51,7 @@ import minicraft.item.PotionItem;
 import minicraft.item.PotionType;
 import minicraft.item.Recipe;
 import minicraft.item.StackableItem;
+import minicraft.level.ChunkManager;
 import minicraft.level.Level;
 import minicraft.level.tile.Tiles;
 import minicraft.network.Network;
@@ -86,8 +88,10 @@ import java.util.AbstractMap;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Stack;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
@@ -130,8 +134,88 @@ public class Load {
 
 		if (!loadGame) return;
 
-		// Is dev build
-		if (Game.VERSION.isDev() && worldVer.compareTo(Game.VERSION) < 0) {
+		if (Game.VERSION.isSpecial() && !worldVer.isSpecial()) {
+			Logging.SAVELOAD.info("Old finite world detected, backup prompting...");
+			ArrayList<ListEntry> entries = new ArrayList<>();
+			entries.addAll(Arrays.asList(StringEntry.useLines(Color.WHITE, false,
+				Localization.getLocalized("minicraft.displays.save.popup_display.finite_world_backup_prompt.msg",
+					worldVer, Game.VERSION))));
+			entries.addAll(Arrays.asList(StringEntry.useLines("minicraft.display.popup.escape_cancel")));
+
+			AtomicBoolean acted = new AtomicBoolean(false);
+			AtomicBoolean continues = new AtomicBoolean(false);
+			AtomicBoolean doBackup = new AtomicBoolean(false);
+
+			ArrayList<PopupDisplay.PopupActionCallback> callbacks = new ArrayList<>();
+			callbacks.add(new PopupDisplay.PopupActionCallback("EXIT", m -> {
+				Game.exitDisplay();
+				acted.set(true);
+				return true;
+			}));
+
+			callbacks.add(new PopupDisplay.PopupActionCallback("ENTER|Y", m -> {
+				Game.exitDisplay();
+				continues.set(true);
+				doBackup.set(true);
+				acted.set(true);
+				return true;
+			}));
+
+			callbacks.add(new PopupDisplay.PopupActionCallback("N", m -> {
+				Game.exitDisplay();
+				continues.set(true);
+				acted.set(true);
+				return true;
+			}));
+
+			Game.setDisplay(new PopupDisplay(new PopupDisplay.PopupConfig(
+				"minicraft.displays.save.popup_display.world_backup_prompt", callbacks, 2),
+				entries.toArray(new ListEntry[0])));
+
+			while (true) {
+				if (acted.get()) {
+					if (continues.get()) {
+						if (doBackup.get()) {
+							Logging.SAVELOAD.info("Performing world backup...");
+							int i = 0;
+							String filename = worldname;
+							File f = new File(location + "/saves/", filename);
+							while (f.exists()) { // Increments world name if world exists
+								i++;
+								filename = worldname + " (" + i + ")";
+								f = new File(location + "/saves/", filename);
+							}
+							f.mkdirs();
+							try {
+								FileHandler.copyFolderContents(Paths.get(location, "saves", worldname),
+									f.toPath(), FileHandler.SKIP, false);
+							} catch (IOException e) {
+								Logging.SAVELOAD.error(e, "Error occurs while performing world backup, loading aborted");
+								throw new RuntimeException(new InterruptedException("World loading interrupted."));
+							}
+
+							Logging.SAVELOAD.info("World backup \"{}\" is created.", filename);
+							WorldSelectDisplay.updateWorlds();
+						} else
+							Logging.SAVELOAD.warn("World backup is skipped.");
+						Logging.SAVELOAD.debug("World loading continues...");
+					} else {
+						Logging.SAVELOAD.info("User cancelled world loading, loading aborted.");
+						throw new RuntimeException(new InterruptedException("World loading interrupted."));
+					}
+
+					break;
+				}
+
+				try {
+					//noinspection BusyWait
+					Thread.sleep(10);
+				} catch (InterruptedException ignored) {}
+			}
+		}
+
+		// Is dev build and if both versions are special or not
+		if (Game.VERSION.isDev() && worldVer.compareTo(Game.VERSION) < 0 && (Game.VERSION.isSpecial() == worldVer.isSpecial())) {
 			Logging.SAVELOAD.info("Old world detected, backup prompting...");
 			ArrayList<ListEntry> entries = new ArrayList<>();
 			entries.addAll(Arrays.asList(StringEntry.useLines(Color.WHITE, false,
@@ -222,7 +306,10 @@ public class Load {
 
 			LoadingDisplay.setPercentage(0);
 			loadGame("Game"); // More of the version will be determined here
-			loadWorld("Level");
+			if(worldVer.compareTo(new Version("2.3.0-dev2")) < 0)
+				loadWorld("Level");
+			else
+				loadWorldInf("Level");
 			loadEntities("Entities");
 			loadInventory("Inventory", Game.player.getInventory());
 			loadPlayer("Player", Game.player);
@@ -395,6 +482,22 @@ public class Load {
 			} catch (IOException ex) {
 				ex.printStackTrace();
 			}
+		}
+
+		LoadingDisplay.progress(percentInc);
+	}
+
+	private void loadFromFile(String filename, List<String> data) {
+		data.clear();
+
+		String total;
+		try {
+			total = loadFromFile(filename, true);
+			if (total.length() > 0) { // Safe splitting with JSON styled element.
+				data.addAll(splitUnwrappedCommas(total));
+			}
+		} catch (IOException ex) {
+			ex.printStackTrace();
 		}
 
 		LoadingDisplay.progress(percentInc);
@@ -716,13 +819,12 @@ public class Load {
 			long seed = hasSeed ? Long.parseLong(data.get(2)) : 0;
 			Settings.set("size", lvlw);
 
-			short[] tiles = new short[lvlw * lvlh];
-			short[] tdata = new short[lvlw * lvlh];
+			ChunkManager map = new ChunkManager();
 
 			for (int x = 0; x < lvlw; x++) {
 				for (int y = 0; y < lvlh; y++) {
 					int tileArrIdx = y + x * lvlw;
-					int tileidx = x + y * lvlw; // the tiles are saved with x outer loop, and y inner loop, meaning that the list reads down, then right one, rather than right, then down one.
+					int tileidx = y + x * lvlh; // the tiles are saved with x outer loop, and y inner loop, meaning that the list reads down, then right one, rather than right, then down one.
 					String tilename = data.get(tileidx + (hasSeed ? 4 : 3));
 					if (worldVer.compareTo(new Version("1.9.4-dev6")) < 0) {
 						int tileID = Integer.parseInt(tilename); // they were id numbers, not names, at this point
@@ -755,7 +857,7 @@ public class Load {
 								default:
 									tilename = "White Wool";
 							}
-						} else if (worldVer.compareTo(new Version("2.2.1-dev2")) < 0) {
+						} else if (worldVer.compareTo(new Version("2.3.0-dev1")) < 0) {
 							tilename = "White Wool";
 						}
 					} else if (l == World.minLevelDepth + 1 && tilename.equalsIgnoreCase("Lapis") && worldVer.compareTo(new Version("2.0.3-dev6")) < 0) {
@@ -774,7 +876,8 @@ public class Load {
 						}
 					}
 
-					loadTile(worldVer, tiles, tdata, tileArrIdx, tilename, extradata.get(tileidx));
+					// Tiles are read in an ord
+					loadTile(worldVer, map, x, y, tilename, extradata.get(tileidx));
 				}
 			}
 
@@ -782,15 +885,17 @@ public class Load {
 			World.levels[lvlidx] = new Level(lvlw, lvlh, seed, l, parent, false);
 
 			Level curLevel = World.levels[lvlidx];
-			curLevel.tiles = tiles;
-			curLevel.data = tdata;
+			curLevel.chunkManager = map;
 
 			// Tile initialization
 			for (int x = 0; x < curLevel.w; ++x) {
 				for (int y = 0; y < curLevel.h; ++y) {
-					Tiles.get(curLevel.tiles[x + y * curLevel.w]).onTileSet(curLevel, x, y);
+					curLevel.getTile(x, y).onTileSet(curLevel, x, y);
 				}
 			}
+			for(int x = 0; x < curLevel.w / ChunkManager.CHUNK_SIZE; x++)
+				for(int y = 0; y < curLevel.h / ChunkManager.CHUNK_SIZE; y++)
+					curLevel.chunkManager.setChunkStage(x, y, ChunkManager.CHUNK_STAGE_DONE);
 
 			if (Logging.logLevel) curLevel.printTileLocs(Tiles.get("Stairs Down"));
 
@@ -874,20 +979,130 @@ public class Load {
 		}
 	}
 
+	private void loadWorldInf(String filename) {
+		loadFromFile(location + "/Game" + extension, extradata);
+		long seed = Long.parseLong(extradata.get(1));
+		for (int l = World.maxLevelDepth; l >= World.minLevelDepth; l--) {
+			LoadingDisplay.setMessage(Level.getDepthString(l), false);
+			int lvlidx = World.lvlIdx(l);
+			loadFromFile(location + filename + lvlidx + "/index" + extension, data);
+
+			Set<Point> chunks = new HashSet<>();
+			while(data.size() >= 2)
+				chunks.add(new Point(Integer.parseInt(data.remove(0)), Integer.parseInt(data.remove(0))));
+
+			ChunkManager map = new ChunkManager();
+			Level parent = World.levels[World.lvlIdx(l + 1)];
+			World.levels[lvlidx] = new Level((int)Settings.get("size"), (int)Settings.get("size"), seed, l, parent, false);
+
+			Level curLevel = World.levels[lvlidx];
+			curLevel.chunkManager = map;
+			for(Point c : chunks) {
+				loadFromFile(location + filename + lvlidx + "/t." + c.x + "." + c.y + extension, data);
+				loadFromFile(location + filename + lvlidx + "/d." + c.x + "." + c.y + extension, extradata);
+				for(int x = 0; x < ChunkManager.CHUNK_SIZE; x++) {
+					for(int y = 0; y < ChunkManager.CHUNK_SIZE; y++) {
+						int tileidx = y + x * ChunkManager.CHUNK_SIZE; // the tiles are saved with x outer loop, and y inner loop, meaning that the list reads down, then right one, rather than right, then down one.
+						int tX = x + c.x * ChunkManager.CHUNK_SIZE, tY = y + c.y * ChunkManager.CHUNK_SIZE;
+						loadTile(worldVer, map, tX, tY, data.get(tileidx), extradata.get(tileidx));
+						map.getTile(tX, tY).onTileSet(curLevel, tX, tY);
+					}
+				}
+				map.setChunkStage(c.x, c.y, ChunkManager.CHUNK_STAGE_DONE);
+			}
+
+			if (Logging.logLevel) curLevel.printTileLocs(Tiles.get("Stairs Down"));
+
+			if (parent == null) continue;
+			/// confirm that there are stairs in all the places that should have stairs.
+			// if there isn't, mark the chunk as needing stairs
+			for (minicraft.gfx.Point p : parent.getMatchingTiles(Tiles.get("Stairs Down"))) {
+				if (curLevel.getTile(p.x, p.y) != Tiles.get("Stairs Up")) {
+					curLevel.chunkManager.setChunkStage(p.x / ChunkManager.CHUNK_SIZE, p.y / ChunkManager.CHUNK_SIZE, ChunkManager.CHUNK_STAGE_UNFINISHED_STAIRS);
+				}
+			}
+			for (minicraft.gfx.Point p : curLevel.getMatchingTiles(Tiles.get("Stairs Up"))) {
+				if (parent.getTile(p.x, p.y) != Tiles.get("Stairs Down")) {
+					parent.chunkManager.setChunkStage(p.x / ChunkManager.CHUNK_SIZE, p.y / ChunkManager.CHUNK_SIZE, ChunkManager.CHUNK_STAGE_UNFINISHED_STAIRS);
+				}
+			}
+		}
+
+		LoadingDisplay.setMessage("minicraft.displays.loading.message.quests");
+
+		if (new File(location + "Quests.json").exists()) {
+			Logging.SAVELOAD.warn("Quest.json exists and it has been deprecated; renaming...");
+			try {
+				Files.move(Paths.get(location, "Quests.json"), Paths.get(location, "Quests.json_old"), StandardCopyOption.REPLACE_EXISTING);
+			} catch (IOException e) {
+				Logging.SAVELOAD.warn("Quest.json renamed failed.");
+			}
+		}
+
+		boolean advancementsLoadSucceeded = false;
+		if (new File(location + "advancements.json").exists()) {
+			try {
+				JSONObject questsObj = new JSONObject(loadFromFile(location + "advancements.json", true));
+				@SuppressWarnings("unused")
+				Version dataVersion = new Version(questsObj.getString("Version"));
+				TutorialDisplayHandler.load(questsObj);
+				AdvancementElement.loadRecipeUnlockingElements(questsObj);
+				QuestsDisplay.load(questsObj);
+				advancementsLoadSucceeded = true;
+			} catch (IOException e) {
+				Logging.SAVELOAD.error(e, "Unable to load advancements.json, loading default quests instead.");
+			}
+		} else {
+			Logging.SAVELOAD.debug("advancements.json not found, loading default quests instead.");
+		}
+
+		if (!advancementsLoadSucceeded) {
+			TutorialDisplayHandler.reset(false);
+			AdvancementElement.resetRecipeUnlockingElements();
+			QuestsDisplay.resetGameQuests();
+		}
+
+		boolean signsLoadSucceeded = false;
+		if (new File(location + "signs.json").exists()) {
+			try {
+				JSONObject fileObj = new JSONObject(loadFromFile(location + "signs.json", true));
+				@SuppressWarnings("unused")
+				Version dataVersion = new Version(fileObj.getString("Version"));
+				JSONArray dataObj = fileObj.getJSONArray("signs");
+				HashMap<Map.Entry<Integer, Point>, List<String>> signTexts = new HashMap<>();
+				for (int i = 0; i < dataObj.length(); i++) {
+					JSONObject signObj = dataObj.getJSONObject(i);
+					signTexts.put(
+						new AbstractMap.SimpleImmutableEntry<>(signObj.getInt("level"), new Point(signObj.getInt("x"), signObj.getInt("y"))),
+						signObj.getJSONArray("lines").toList().stream().map(e -> (String) e).collect(Collectors.toList())
+					);
+				}
+
+				SignDisplay.loadSignTexts(signTexts);
+				signsLoadSucceeded = true;
+			} catch (IOException e) {
+				Logging.SAVELOAD.error(e, "Unable to load signs.json, reset sign data instead.");
+			}
+		} else {
+			Logging.SAVELOAD.debug("signs.json not found, reset sign data instead.");
+		}
+
+		if (!signsLoadSucceeded) {
+			SignDisplay.resetSignTexts();
+		}
+	}
+
 	private static final Pattern OLD_TORCH_TILE_REGEX = Pattern.compile("TORCH ([\\w ]+)");
 
-	public static void loadTile(Version worldVer, short[] tiles, short[] data, int idx, String tileName, String tileData) {
+	public static void loadTile(Version worldVer, ChunkManager map, int x, int y, String tileName, String tileData) {
 		Matcher matcher;
 		if ((matcher = OLD_TORCH_TILE_REGEX.matcher(tileName.toUpperCase())).matches()) {
-			tiles[idx] = 57; // ID of TORCH tile
-			data[idx] = Tiles.get(matcher.group(1)).id;
+			map.setTile(x, y, Tiles.get("Torch"), Tiles.get(matcher.group(1)).id);
 		} else {
-			tiles[idx] = Tiles.get(tileName).id;
-			if (worldVer.compareTo(new Version("2.2.1-dev1")) <= 0 && tileName.equalsIgnoreCase("FLOWER")) {
-				data[idx] = 0;
-			} else {
-				data[idx] = Short.parseShort(tileData);
-			}
+			short data = 0;
+			if (worldVer.compareTo(new Version("2.3.0-dev1")) > 0 || !tileName.equalsIgnoreCase("FLOWER"))
+				data = Short.parseShort(tileData);
+			map.setTile(x, y, Tiles.get(tileName), data);
 		}
 	}
 
@@ -1046,12 +1261,9 @@ public class Load {
 				name = name.replace("Potion", "Awkward Potion");
 		}
 
-		if (worldVer.compareTo(new Version("2.2.1-dev2")) < 0) {
+		if (worldVer.compareTo(new Version("2.3.0-dev1")) < 0) {
 			if (name.startsWith("Wool"))
 				name = name.replace("Wool", "White Wool");
-		}
-
-		if (worldVer.compareTo(new Version("2.2.1-dev2")) < 0) {
 			if (name.startsWith("Flower"))
 				name = name.replace("Flower", "Oxeye Daisy");
 		}
@@ -1273,6 +1485,8 @@ public class Load {
 		} else if (newEntity instanceof KnightStatue) {
 			int health = Integer.parseInt(info.get(2));
 			newEntity = new KnightStatue(health);
+		} else if (newEntity instanceof Boat) {
+			newEntity = new Boat(Direction.getDirection(Integer.parseInt(info.get(2))));
 		}
 
 		if (!isLocalSave) {
@@ -1383,6 +1597,8 @@ public class Load {
 				return new ObsidianKnight(0);
 			case "DyeVat":
 				return new Crafter(Crafter.Type.DyeVat);
+			case "Boat":
+				return new Boat(Direction.NONE);
 			default:
 				Logging.SAVELOAD.error("LOAD ERROR: Unknown or outdated entity requested: " + string);
 				return null;

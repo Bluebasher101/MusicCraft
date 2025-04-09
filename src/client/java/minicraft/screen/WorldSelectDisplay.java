@@ -17,7 +17,6 @@ import minicraft.screen.entry.ListEntry;
 import minicraft.screen.entry.SelectEntry;
 import minicraft.screen.entry.StringEntry;
 import minicraft.util.Logging;
-import minicraft.core.io.Music;
 
 import java.io.File;
 import java.io.IOException;
@@ -161,7 +160,6 @@ public class WorldSelectDisplay extends Display {
 				}
 
 				Sound.play("confirm");
-				Music.StopMusic();
 				updateWorlds();
 				updateEntries();
 				if (WorldSelectDisplay.getWorldNames().size() > 0) {

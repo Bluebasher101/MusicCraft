@@ -17,7 +17,7 @@ import minicraft.screen.TutorialDisplayHandler;
 import minicraft.screen.WorldSelectDisplay;
 import minicraft.util.AdvancementElement;
 import minicraft.util.Logging;
-import minicraft.core.io.Music;
+
 import java.awt.GraphicsDevice;
 
 public class Updater extends Game {
@@ -73,7 +73,7 @@ public class Updater extends Game {
 	static void updateFullscreen() {
 		// Dispose is needed to set undecorated value
 		Initializer.frame.dispose();
-		
+
 		GraphicsDevice device = Initializer.frame.getGraphicsConfiguration().getDevice();
 		if (Updater.FULLSCREEN) {
 			Initializer.frame.setUndecorated(true);
@@ -92,12 +92,7 @@ public class Updater extends Game {
 	// VERY IMPORTANT METHOD!! Makes everything keep happening.
 	// In the end, calls menu.tick() if there's a menu, or level.tick() if no menu.
 	public static void tick() {
-		
-		if(tickCount == 3600|| tickCount==21600 || tickCount==39600){
-			 
-			Music.PlayRandomMusic();
-		}
-		
+
 		if (input.getMappedKey("FULLSCREEN").isClicked()) {
 			Updater.FULLSCREEN = !Updater.FULLSCREEN;
 			Updater.updateFullscreen();

@@ -116,7 +116,7 @@ public class Display {
 
 		if (menus.length == 0)
 			return;
-		
+
 		int idx = selection;
 		do {
 			idx++;

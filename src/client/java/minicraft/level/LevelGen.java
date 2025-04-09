@@ -2,98 +2,60 @@ package minicraft.level;
 
 import minicraft.core.Game;
 import minicraft.core.io.Settings;
+import minicraft.gfx.Point;
 import minicraft.gfx.Rectangle;
-import minicraft.level.tile.FlowerTile;
 import minicraft.level.tile.Tiles;
 import minicraft.screen.RelPos;
-import org.jetbrains.annotations.Nullable;
+import minicraft.util.Logging;
+import minicraft.util.Simplex;
+
 import org.tinylog.Logger;
 
+import javax.imageio.ImageIO;
 import javax.swing.ImageIcon;
 import javax.swing.JOptionPane;
 
+import java.awt.Color;
+import java.awt.Graphics;
 import java.awt.Image;
 import java.awt.image.BufferedImage;
+import java.io.File;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Random;
+import java.util.Set;
 
 public class LevelGen {
 	private static long worldSeed = 0;
 	private static final Random random = new Random(worldSeed);
+	private static final Simplex noise = new Simplex(worldSeed);
 	public double[] values; // An array of doubles, used to help making noise for the map
 	private final int w, h; // Width and height of the map
 	private static final int stairRadius = 15;
 
+	private static final int NOISE_LAYER_DIFF = 100;
+
 	/**
 	 * This creates noise to create random values for level generation
 	 */
-	public LevelGen(int w, int h, int featureSize) {
+	public LevelGen(int w, int h, int featureSize) { this(0, 0, w, h, featureSize, 0); }
+
+	public LevelGen(int w, int h, int featureSize, int layer) { this(0, 0, w, h, featureSize, layer); }
+
+	public LevelGen(int xOffset, int yOffset, int w, int h, int featureSize) { this(xOffset, yOffset, w, h, featureSize, 0); }
+
+	public LevelGen(int xOffset, int yOffset, int w, int h, int featureSize, int layer) {
 		this.w = w;
 		this.h = h;
 
 		values = new double[w * h];
 
-		/// Feature size likely determines how big the biomes are, in some way. It tends to be 16 or 32, in the code below.
-		for (int y = 0; y < w; y += featureSize) {
-			for (int x = 0; x < w; x += featureSize) {
-				setSample(x, y, random.nextFloat() * 2 - 1); // This method sets the random value from -1 to 1 at the given coordinate.
+		for(int x = 0; x < w; x++)
+			for(int y = 0; y < h; y++) {
+				setSample(x, y, noise.noise3((x + xOffset) / (float)featureSize, (y + yOffset) / (float)featureSize, layer * NOISE_LAYER_DIFF));
 			}
-		}
-
-		int stepSize = featureSize;
-		double scale = 2.0 / w;
-		double scaleMod = 1;
-		do {
-			int halfStep = stepSize / 2;
-			for (int y = 0; y < h; y += stepSize) {
-				for (int x = 0; x < w; x += stepSize) { // This loops through the values again, by a given increment...
-					double a = sample(x, y); // Fetches the value at the coordinate set previously (it fetches the exact same ones that were just set above)
-					double b = sample(x + stepSize, y); // Fetches the value at the next coordinate over. This could possibly loop over at the end, and fetch the first value in the row instead.
-					double c = sample(x, y + stepSize); // Fetches the next value down, possibly looping back to the top of the column.
-					double d = sample(x + stepSize, y + stepSize); // Fetches the value one down, one right.
-
-					/*
-					 * This could probably use some explaining... Note: the number values are probably only good the first time around...
-					 *
-					 * This starts with taking the average of the four numbers from before (they form a little square in adjacent tiles), each of which holds a value from -1 to 1.
-					 * Then, it basically adds a 5th number, generated the same way as before. However, this 5th number is multiplied by a few things first...
-					 * ...by stepSize, aka featureSize, and scale, which is 2/size the first time. featureSize is 16 or 32, which is a multiple of the common level size, 128.
-					 * Precisely, it is 128 / 8, or 128 / 4, respectively with 16 and 32. So, the equation becomes size / const * 2 / size, or, simplified, 2 / const.
-					 * For a feature size of 32, stepSize * scale = 2 / 4 = 1/2. featureSize of 16, it's 2 / 8 = 1/4. Later on, this gets closer to 4 / 4 = 1, so... the 5th value may not change much at all in later iterations for a feature size of 32, which means it has an effect of 1, which is actually quite significant to the value that is set.
-					 * So, it tends to decrease the 5th -1 or 1 number, sometimes making it of equal value to the other 4 numbers, sort of. It will usually change the end result by 0.5 to 0.25, perhaps; at max.
-					 */
-					double e = (a + b + c + d) / 4.0 + (random.nextFloat() * 2 - 1) * stepSize * scale;
-					setSample(x + halfStep, y + halfStep, e); // This sets the value that is right in the middle of the other 4 to an average of the four, plus a 5th number, which makes it slightly off, differing by about 0.25 or so on average, the first time around.
-				}
-			}
-
-			// This loop does the same as before, but it takes into account some of the half steps we set in the last loop.
-			for (int y = 0; y < h; y += stepSize) {
-				for (int x = 0; x < w; x += stepSize) {
-					double a = sample(x, y); // middle (current) tile
-					double b = sample(x + stepSize, y); // right tile
-					double c = sample(x, y + stepSize); // bottom tile
-					double d = sample(x + halfStep, y + halfStep); // mid-right, mid-bottom tile
-					double e = sample(x + halfStep, y - halfStep); // mid-right, mid-top tile
-					double f = sample(x - halfStep, y + halfStep); // mid-left, mid-bottom tile
-
-					// The 0.5 at the end is because we are going by half-steps..?
-					// The H is for the right and surrounding mids, and g is the bottom and surrounding mids.
-					double H = (a + b + d + e) / 4.0 + (random.nextFloat() * 2 - 1) * stepSize * scale * 0.5; // Adds middle, right, mr-mb, mr-mt, and random.
-					double g = (a + c + d + f) / 4.0 + (random.nextFloat() * 2 - 1) * stepSize * scale * 0.5; // Adds middle, bottom, mr-mb, ml-mb, and random.
-					setSample(x + halfStep, y, H); // Sets the H to the mid-right
-					setSample(x, y + halfStep, g); // Sets the g to the mid-bottom
-				}
-			}
-
-			/*
-			 * THEN... this stuff is set to repeat the system all over again!
-			 * The featureSize is halved, allowing access to further unset mids, and the scale changes...
-			 * The scale increases the first time, x1.8, but the second time it's x1.1, and after that probably a little less than 1. So, it generally increases a bit, maybe to 4 / w at tops. This results in the 5th random value being more significant than the first 4 ones in later iterations.
-			 */
-			stepSize /= 2;
-			scale *= (scaleMod + 0.8);
-			scaleMod *= 0.3;
-		} while (stepSize > 1); // This stops when the stepsize is < 1, aka 0 b/c it's an int. At this point there are no more mid values.
 	}
 
 	private double sample(int x, int y) {
@@ -117,150 +79,72 @@ public class LevelGen {
 		values[(x & (w - 1)) + (y & (h - 1)) * w] = value;
 	}
 
-	static short[] @Nullable [] createAndValidateMap(int w, int h, int level, long seed) {
+	static void generateChunk(ChunkManager chunkManager, int x, int y, int level, long seed) {
 		worldSeed = seed;
 
-		if (level == 1)
-			return createAndValidateSkyMap(w, h);
-		if (level == 0)
-			return createAndValidateTopMap(w, h);
-		if (level == -4)
-			return createAndValidateDungeon(w, h);
-		if (level > -4 && level < 0)
-			return createAndValidateUndergroundMap(w, h, -level);
+		if(level == 1)
+			generateSkyChunk(chunkManager, x, y);
+		else if(level == 0)
+			generateTopChunk(chunkManager, x, y);
+		else if(level == -4)
+			generateDungeonChunk(chunkManager, x, y);
+		else if(level > -4 && level < 0)
+			generateUndergroundChunk(chunkManager, x, y, -level);
+		else
+			Logger.tag("LevelGen").error("Level index is not valid. Could not generate a chunk at " + x + ", " + y + " on level " + level + " with seed " + seed);
 
-		Logger.tag("LevelGen").error("Level index is not valid. Could not generate a level.");
-
-		return null;
+		chunkManager.setChunkStage(x, y, ChunkManager.CHUNK_STAGE_UNFINISHED_STAIRS);
 	}
 
-	private static short[][] createAndValidateTopMap(int w, int h) {
+	static ChunkManager createAndValidateMap(int w, int h, int level, long seed) {
+		ChunkManager cm = new ChunkManager();
+		for(int i = 0; i < w / ChunkManager.CHUNK_SIZE; i++)
+			for(int j = 0; j < h / ChunkManager.CHUNK_SIZE; j++)
+				generateChunk(cm, i, j, level, seed);
+		return cm;
+	}
+
+	private static void generateTopChunk(ChunkManager map, int chunkX, int chunkY) {
 		random.setSeed(worldSeed);
-		do {
-			short[][] result = createTopMap(w, h);
+		noise.setSeed(worldSeed);
 
-			int[] count = new int[256];
+		// Brevity
+		int S = ChunkManager.CHUNK_SIZE;
 
-			for (int i = 0; i < w * h; i++) {
-				count[result[0][i] & 0xffff]++;
-			}
-			if (count[Tiles.get("rock").id & 0xffff] < 100) continue;
-			if (count[Tiles.get("sand").id & 0xffff] < 100) continue;
-			if (count[Tiles.get("grass").id & 0xffff] < 100) continue;
-			if (count[Tiles.get("tree").id & 0xffff] < 100) continue;
-
-			if (count[Tiles.get("Stairs Down").id & 0xffff] < w / 21)
-				continue; // Size 128 = 6 stairs min
-
-			return result;
-
-		} while (true);
-	}
-
-	private static short[] @Nullable [] createAndValidateUndergroundMap(int w, int h, int depth) {
-		random.setSeed(worldSeed);
-		do {
-			short[][] result = createUndergroundMap(w, h, depth);
-
-			int[] count = new int[256];
-
-			for (int i = 0; i < w * h; i++) {
-				count[result[0][i] & 0xffff]++;
-			}
-			if (count[Tiles.get("rock").id & 0xffff] < 100) continue;
-			if (count[Tiles.get("dirt").id & 0xffff] < 100) continue;
-			if (count[(Tiles.get("iron Ore").id & 0xffff) + depth - 1] < 20) continue;
-
-			if (depth < 3 && count[Tiles.get("Stairs Down").id & 0xffff] < w / 32)
-				continue; // Size 128 = 4 stairs min
-
-			return result;
-
-		} while (true);
-	}
-
-	private static short[][] createAndValidateDungeon(int w, int h) {
-		random.setSeed(worldSeed);
-
-		do {
-			short[][] result = createDungeon(w, h);
-
-			int[] count = new int[256];
-
-			for (int i = 0; i < w * h; i++) {
-				count[result[0][i] & 0xffff]++;
-			}
-			if (count[Tiles.get("Obsidian").id & 0xffff] + count[Tiles.get("dirt").id & 0xffff] < 100) continue;
-			if (count[Tiles.get("Obsidian Wall").id & 0xffff] < 100) continue;
-
-			return result;
-
-		} while (true);
-	}
-
-	private static short[] @Nullable [] createAndValidateSkyMap(int w, int h) {
-		random.setSeed(worldSeed);
-
-		do {
-			short[][] result = createSkyMap(w, h);
-
-			int[] count = new int[256];
-
-			for (int i = 0; i < w * h; i++) {
-				count[result[0][i] & 0xffff]++;
-			}
-			if (count[Tiles.get("cloud").id & 0xffff] < 2000) continue;
-			if (count[Tiles.get("Stairs Down").id & 0xffff] < w / 64)
-				continue; // size 128 = 2 stairs min
-
-			return result;
-
-		} while (true);
-	}
-
-	private static short[][] createTopMap(int w, int h) { // Create surface map
 		// creates a bunch of value maps, some with small size...
-		LevelGen mnoise1 = new LevelGen(w, h, 16);
-		LevelGen mnoise2 = new LevelGen(w, h, 16);
-		LevelGen mnoise3 = new LevelGen(w, h, 16);
+		LevelGen mnoise1 = new LevelGen(chunkX * S, chunkY * S, S, S, 16, 0);
+		LevelGen mnoise2 = new LevelGen(chunkX * S, chunkY * S, S, S, 16, 1);
+		LevelGen mnoise3 = new LevelGen(chunkX * S, chunkY * S, S, S, 16, 2);
 
 		// ...and some with larger size.
-		LevelGen noise1 = new LevelGen(w, h, 32);
-		LevelGen noise2 = new LevelGen(w, h, 32);
+		LevelGen noise1 = new LevelGen(chunkX * S, chunkY * S, S, S, 32, 3);
+		LevelGen noise2 = new LevelGen(chunkX * S, chunkY * S, S, S, 32, 4);
 
-		short[] map = new short[w * h];
-		short[] data = new short[w * h];
+    List<Point> rocks = new ArrayList<>();
 
-		for (int y = 0; y < h; y++) {
-			for (int x = 0; x < w; x++) {
-				int i = x + y * w;
-
-				double val = Math.abs(noise1.values[i] - noise2.values[i]) * 3 - 2;
+		int tileX = chunkX * S, tileY = chunkY * S;
+		for(int y = tileY; y < tileY + S; y++)
+			for(int x = tileX; x < tileX + S; x++) {
+				int i = (x - tileX) + (y - tileY) * S;
+				double val = Math.abs(noise1.values[i] - noise2.values[i]) * 3 - 1;
 				double mval = Math.abs(mnoise1.values[i] - mnoise2.values[i]);
 				mval = Math.abs(mval - mnoise3.values[i]) * 3 - 2;
 
 				// This calculates a sort of distance based on the current coordinate.
-				double xd = x / (w - 1.0) * 2 - 1;
-				double yd = y / (h - 1.0) * 2 - 1;
-				if (xd < 0) xd = -xd;
-				if (yd < 0) yd = -yd;
-				double dist = Math.max(xd, yd);
-				dist = dist * dist * dist * dist;
-				dist = dist * dist * dist * dist;
-				val += 1 - dist * 20;
 
 				switch ((String) Settings.get("Type")) {
 					case "minicraft.settings.type.island":
 
 						if (val < -0.5) {
 							if (Settings.get("Theme").equals("minicraft.settings.theme.hell"))
-								map[i] = Tiles.get("lava").id;
+								map.setTile(x, y, Tiles.get("lava"), 0);
 							else
-								map[i] = Tiles.get("water").id;
+								map.setTile(x, y, Tiles.get("water"), 0);
 						} else if (val > 0.5 && mval < -1.5) {
-							map[i] = Tiles.get("rock").id;
+							rocks.add(new Point(x,y));
+							map.setTile(x, y, Tiles.get("rock"), 0);
 						} else {
-							map[i] = Tiles.get("grass").id;
+							map.setTile(x, y, Tiles.get("grass"), 0);
 						}
 
 						break;
@@ -268,55 +152,57 @@ public class LevelGen {
 
 						if (val < -1.5) {
 							if (Settings.get("Theme").equals("minicraft.settings.theme.hell")) {
-								map[i] = Tiles.get("lava").id;
+								map.setTile(x, y, Tiles.get("lava"), 0);
 							} else {
-								map[i] = Tiles.get("water").id;
+								map.setTile(x, y, Tiles.get("water"), 0);
 							}
 						} else if (val > 0.5 && mval < -1.5) {
-							map[i] = Tiles.get("rock").id;
+							rocks.add(new Point(x,y));
+							map.setTile(x, y, Tiles.get("rock"), 0);
 						} else {
-							map[i] = Tiles.get("grass").id;
+							map.setTile(x, y, Tiles.get("grass"), 0);
 						}
 
 						break;
 					case "minicraft.settings.type.mountain":
 
 						if (val < -0.4) {
-							map[i] = Tiles.get("grass").id;
+							map.setTile(x, y, Tiles.get("grass"), 0);
 						} else if (val > 0.5 && mval < -1.5) {
 							if (Settings.get("Theme").equals("minicraft.settings.theme.hell")) {
-								map[i] = Tiles.get("lava").id;
+								map.setTile(x, y, Tiles.get("lava"), 0);
 							} else {
-								map[i] = Tiles.get("water").id;
+								map.setTile(x, y, Tiles.get("water"), 0);
 							}
 						} else {
-							map[i] = Tiles.get("rock").id;
+							rocks.add(new Point(x,y));
+							map.setTile(x, y, Tiles.get("rock"), 0);
 						}
 						break;
 
 					case "minicraft.settings.type.irregular":
 						if (val < -0.5 && mval < -0.5) {
 							if (Settings.get("Theme").equals("minicraft.settings.theme.hell")) {
-								map[i] = Tiles.get("lava").id;
+								map.setTile(x, y, Tiles.get("lava"), 0);
 							}
 							if (!Settings.get("Theme").equals("minicraft.settings.theme.hell")) {
-								map[i] = Tiles.get("water").id;
+								map.setTile(x, y, Tiles.get("water"), 0);
 							}
 						} else if (val > 0.5 && mval < -1.5) {
-							map[i] = Tiles.get("rock").id;
+							rocks.add(new Point(x,y));
+							map.setTile(x, y, Tiles.get("rock"), 0);
 						} else {
-							map[i] = Tiles.get("grass").id;
+							map.setTile(x, y, Tiles.get("grass"), 0);
 						}
 						break;
 				}
+
 			}
-		}
 
 		if (Settings.get("Theme").equals("minicraft.settings.theme.desert")) {
-
-			for (int i = 0; i < w * h / 200; i++) {
-				int xs = random.nextInt(w);
-				int ys = random.nextInt(h);
+			for (int i = 0; i < S * S / 200; i++) {
+				int xs = random.nextInt(S);
+				int ys = random.nextInt(S);
 				for (int k = 0; k < 10; k++) {
 					int x = xs + random.nextInt(21) - 10;
 					int y = ys + random.nextInt(21) - 10;
@@ -325,9 +211,9 @@ public class LevelGen {
 						int yo = y + random.nextInt(5) - random.nextInt(5);
 						for (int yy = yo - 1; yy <= yo + 1; yy++)
 							for (int xx = xo - 1; xx <= xo + 1; xx++)
-								if (xx >= 0 && yy >= 0 && xx < w && yy < h) {
-									if (map[xx + yy * w] == Tiles.get("grass").id) {
-										map[xx + yy * w] = Tiles.get("sand").id;
+								if (xx >= 0 && yy >= 0 && xx < S && yy < S) {
+									if (map.getTile(xx + tileX, yy + tileY) == Tiles.get("grass")) {
+										map.setTile(xx + tileX, yy + tileY, Tiles.get("sand"), 0);
 									}
 								}
 					}
@@ -336,10 +222,9 @@ public class LevelGen {
 		}
 
 		if (!Settings.get("Theme").equals("minicraft.settings.theme.desert")) {
-
-			for (int i = 0; i < w * h / 2800; i++) {
-				int xs = random.nextInt(w);
-				int ys = random.nextInt(h);
+			for (int i = 0; i < S * S / 2800; i++) {
+				int xs = random.nextInt(S);
+				int ys = random.nextInt(S);
 				for (int k = 0; k < 10; k++) {
 					int x = xs + random.nextInt(21) - 10;
 					int y = ys + random.nextInt(21) - 10;
@@ -348,9 +233,9 @@ public class LevelGen {
 						int yo = y + random.nextInt(5) - random.nextInt(5);
 						for (int yy = yo - 1; yy <= yo + 1; yy++)
 							for (int xx = xo - 1; xx <= xo + 1; xx++)
-								if (xx >= 0 && yy >= 0 && xx < w && yy < h) {
-									if (map[xx + yy * w] == Tiles.get("grass").id) {
-										map[xx + yy * w] = Tiles.get("sand").id;
+								if (xx >= 0 && yy >= 0 && xx < S && yy < S) {
+									if (map.getTile(xx + tileX, yy + tileY) == Tiles.get("grass")) {
+										map.setTile(xx + tileX, yy + tileY, Tiles.get("sand"), 0);
 									}
 								}
 					}
@@ -359,30 +244,30 @@ public class LevelGen {
 		}
 
 		if (Settings.get("Theme").equals("minicraft.settings.theme.forest")) {
-			for (int i = 0; i < w * h / 200; i++) {
-				int x = random.nextInt(w);
-				int y = random.nextInt(h);
+			for (int i = 0; i < S * S / 200; i++) {
+				int x = random.nextInt(S);
+				int y = random.nextInt(S);
 				for (int j = 0; j < 200; j++) {
 					int xx = x + random.nextInt(15) - random.nextInt(15);
 					int yy = y + random.nextInt(15) - random.nextInt(15);
-					if (xx >= 0 && yy >= 0 && xx < w && yy < h) {
-						if (map[xx + yy * w] == Tiles.get("grass").id) {
-							map[xx + yy * w] = Tiles.get("tree").id;
+					if (xx >= 0 && yy >= 0 && xx < S && yy < S) {
+						if (map.getTile(xx + tileX, yy + tileY) == Tiles.get("grass")) {
+							map.setTile(xx + tileX, yy + tileY, Tiles.get("tree"), 0);
 						}
 					}
 				}
 			}
 		}
 		if (!Settings.get("Theme").equals("minicraft.settings.theme.forest") && !Settings.get("Theme").equals("minicraft.settings.theme.plain")) {
-			for (int i = 0; i < w * h / 1200; i++) {
-				int x = random.nextInt(w);
-				int y = random.nextInt(h);
+			for (int i = 0; i < S * S / 1200; i++) {
+				int x = random.nextInt(S);
+				int y = random.nextInt(S);
 				for (int j = 0; j < 200; j++) {
 					int xx = x + random.nextInt(15) - random.nextInt(15);
 					int yy = y + random.nextInt(15) - random.nextInt(15);
-					if (xx >= 0 && yy >= 0 && xx < w && yy < h) {
-						if (map[xx + yy * w] == Tiles.get("grass").id) {
-							map[xx + yy * w] = Tiles.get("tree").id;
+					if (xx >= 0 && yy >= 0 && xx < S && yy < S) {
+						if (map.getTile(xx + tileX, yy + tileY) == Tiles.get("grass")) {
+							map.setTile(xx + tileX, yy + tileY, Tiles.get("tree"), 0);
 						}
 					}
 				}
@@ -390,186 +275,161 @@ public class LevelGen {
 		}
 
 		if (Settings.get("Theme").equals("minicraft.settings.theme.plain")) {
-			for (int i = 0; i < w * h / 2800; i++) {
-				int x = random.nextInt(w);
-				int y = random.nextInt(h);
+			for (int i = 0; i < S * S / 2800; i++) {
+				int x = random.nextInt(S);
+				int y = random.nextInt(S);
 				for (int j = 0; j < 200; j++) {
 					int xx = x + random.nextInt(15) - random.nextInt(15);
 					int yy = y + random.nextInt(15) - random.nextInt(15);
-					if (xx >= 0 && yy >= 0 && xx < w && yy < h) {
-						if (map[xx + yy * w] == Tiles.get("grass").id) {
-							map[xx + yy * w] = Tiles.get("tree").id;
+					if (xx >= 0 && yy >= 0 && xx < S && yy < S) {
+						if (map.getTile(xx + tileX, yy + tileY) == Tiles.get("grass")) {
+							map.setTile(xx + tileX, yy + tileY, Tiles.get("tree"), 0);
 						}
 					}
 				}
 			}
 		}
 		if (!Settings.get("Theme").equals("minicraft.settings.theme.plain")) {
-			for (int i = 0; i < w * h / 400; i++) {
-				int x = random.nextInt(w);
-				int y = random.nextInt(h);
+			for (int i = 0; i < S * S / 400; i++) {
+				int x = random.nextInt(S);
+				int y = random.nextInt(S);
 				for (int j = 0; j < 200; j++) {
 					int xx = x + random.nextInt(15) - random.nextInt(15);
 					int yy = y + random.nextInt(15) - random.nextInt(15);
-					if (xx >= 0 && yy >= 0 && xx < w && yy < h) {
-						if (map[xx + yy * w] == Tiles.get("grass").id) {
-							map[xx + yy * w] = Tiles.get("tree").id;
+					if (xx >= 0 && yy >= 0 && xx < S && yy < S) {
+						if (map.getTile(xx + tileX, yy + tileY) == Tiles.get("grass")) {
+							map.setTile(xx + tileX, yy + tileY, Tiles.get("tree"), 0);
 						}
 					}
 				}
 			}
 		}
 
-		for (int i = 0; i < w * h / 400; i++) {
-			int x = random.nextInt(w);
-			int y = random.nextInt(h);
+		for (int i = 0; i < S * S / 400; i++) {
+			int x = random.nextInt(S);
+			int y = random.nextInt(S);
 			int col = random.nextInt(4) * random.nextInt(4);
 			for (int j = 0; j < 30; j++) {
 				int xx = x + random.nextInt(5) - random.nextInt(5);
 				int yy = y + random.nextInt(5) - random.nextInt(5);
-				if (xx >= 0 && yy >= 0 && xx < w && yy < h) {
-					if (map[xx + yy * w] == Tiles.get("grass").id) {
-						map[xx + yy * w] = Tiles.get("flower").id;
-						data[xx + yy * w] = (short) (col + random.nextInt(3)); // Data determines what the flower is
+				if (xx >= 0 && yy >= 0 && xx < S && yy < S) {
+					if (map.getTile(xx + tileX, yy + tileY) == Tiles.get("grass")) {
+						map.setTile(xx + tileX, yy + tileY, Tiles.get("flower"), col + random.nextInt(3)); // Data determines what the flower is
 					}
 				}
 			}
 		}
 
-		for (int i = 0; i < w * h / 100; i++) {
-			int xx = random.nextInt(w);
-			int yy = random.nextInt(h);
-			if (xx < w && yy < h) {
-				if (map[xx + yy * w] == Tiles.get("sand").id) {
-					map[xx + yy * w] = Tiles.get("cactus").id;
+		for (int i = 0; i < S * S / 100; i++) {
+			int xx = random.nextInt(S);
+			int yy = random.nextInt(S);
+			if (xx < S && yy < S) {
+				if (map.getTile(xx + tileX, yy + tileY) == Tiles.get("sand")) {
+					map.setTile(xx + tileX, yy + tileY, Tiles.get("cactus"), 0);
 				}
 			}
 		}
 
 		int count = 0;
 
-		//if (Game.debug) System.out.println("Generating stairs for surface level...");
-
 		stairsLoop:
-		for (int i = 0; i < w * h / 100; i++) { // Loops a certain number of times, more for bigger world sizes.
-			int x = random.nextInt(w - 2) + 1;
-			int y = random.nextInt(h - 2) + 1;
+		while(!rocks.isEmpty() && count < S / 21) { // Loops a certain number of times, more for bigger world sizes.
+			int i = random.nextInt(rocks.size());
+
+			Point p = rocks.get(i);
+			rocks.remove(i);
 
 			// The first loop, which checks to make sure that a new stairs tile will be completely surrounded by rock.
-			for (int yy = y - 1; yy <= y + 1; yy++)
-				for (int xx = x - 1; xx <= x + 1; xx++)
-					if (map[xx + yy * w] != Tiles.get("rock").id)
+			for (int yy = p.y - 1; yy <= p.y + 1; yy++)
+				for (int xx = p.x - 1; xx <= p.x + 1; xx++)
+					if (map.getTile(xx, yy) != Tiles.get("rock"))
 						continue stairsLoop;
 
 			// This should prevent any stairsDown tile from being within 30 tiles of any other stairsDown tile.
-			for (int yy = Math.max(0, y - stairRadius); yy <= Math.min(h - 1, y + stairRadius); yy++)
-				for (int xx = Math.max(0, x - stairRadius); xx <= Math.min(w - 1, x + stairRadius); xx++)
-					if (map[xx + yy * w] == Tiles.get("Stairs Down").id)
+			for (int yy = p.y - stairRadius; yy <= p.y + stairRadius; yy++)
+				for (int xx = p.x - stairRadius; xx <= p.x + stairRadius; xx++)
+					if (map.getTile(xx, yy) == Tiles.get("Stairs Down"))
 						continue stairsLoop;
 
-			map[x + y * w] = Tiles.get("Stairs Down").id;
-
+			map.setTile(p.x, p.y, Tiles.get("Stairs Down"), 0);
 			count++;
-			if (count >= w / 21) break;
 		}
-
-		//System.out.println("min="+min);
-		//System.out.println("max="+max);
-		//average /= w*h;
-		//System.out.println(average);
-
-		return new short[][] { map, data };
 	}
 
-	private static short[][] createDungeon(int w, int h) {
-		LevelGen noise1 = new LevelGen(w, h, 10);
-		LevelGen noise2 = new LevelGen(w, h, 10);
+	private static void generateDungeonChunk(ChunkManager map, int chunkX, int chunkY) {
+		int S = ChunkManager.CHUNK_SIZE;
+		LevelGen noise1 = new LevelGen(chunkX * S, chunkY * S, S, S, 10, 0);
+		LevelGen noise2 = new LevelGen(chunkX * S, chunkY * S, S, S, 10, 1);
 
-		short[] map = new short[w * h];
-		short[] data = new short[w * h];
-		for (int y = 0; y < h; y++) {
-			for (int x = 0; x < w; x++) {
-				int i = x + y * w;
+		int tileX = chunkX * S, tileY = chunkY * S;
+		for(int y = tileY; y < tileY + S; y++) {
+			for(int x = tileX; x < tileX + S; x++) {
+				int i = (x - tileX) + (y - tileY) * S;
 
-				double val = Math.abs(noise1.values[i] - noise2.values[i]) * 3 - 2;
-
-				double xd = x / (w - 1.1) * 2 - 1;
-				double yd = y / (h - 1.1) * 2 - 1;
-				if (xd < 0) xd = -xd;
-				if (yd < 0) yd = -yd;
-				double dist = Math.max(xd, yd);
-				dist = dist * dist * dist * dist;
-				dist = dist * dist * dist * dist;
-				val = -val * 1 - 2.2;
-				val += 1 - dist * 2;
+				double val = Math.abs(noise1.values[i] - noise2.values[i]) * -3 + 3.5;
 
 				if (val < -0.05) {
-					map[i] = Tiles.get("Obsidian Wall").id;
+					map.setTile(x, y, Tiles.get("Obsidian Wall"), 0);
 				} else if (val >= -0.05 && val < -0.03) {
-					map[i] = Tiles.get("Lava").id;
+					map.setTile(x, y, Tiles.get("Lava"), 0);
 				} else {
 					if (random.nextInt(2) == 1) {
 						if (random.nextInt(2) == 1) {
-							map[i] = Tiles.get("Obsidian").id;
+							map.setTile(x, y, Tiles.get("Obsidian"), 0);
 						} else {
-							map[i] = Tiles.get("Raw Obsidian").id;
+							map.setTile(x, y, Tiles.get("Raw Obsidian"), 0);
 						}
 					} else {
-						map[i] = Tiles.get("dirt").id;
+						map.setTile(x, y, Tiles.get("dirt"), 0);
 					}
 				}
 			}
 		}
 
 		decorLoop:
-		for (int i = 0; i < w * h / 450; i++) {
-			int x = random.nextInt(w - 2) + 1;
-			int y = random.nextInt(h - 2) + 1;
+		for (int i = 0; i < S * S / 450; i++) {
+			int x = random.nextInt(S - 2) + 1;
+			int y = random.nextInt(S - 2) + 1;
 
 			for (int yy = y - 1; yy <= y + 1; yy++) {
 				for (int xx = x - 1; xx <= x + 1; xx++) {
-					if (map[xx + yy * w] != Tiles.get("Obsidian").id)
+					if (map.getTile(xx, yy) != Tiles.get("Obsidian"))
 						continue decorLoop;
 				}
 			}
 
 			if (x > 8 && y > 8) {
-				if (x < w - 8 && y < w - 8) {
+				if (x < S - 8 && y < S - 8) {
 					if (random.nextInt(2) == 0)
-						Structure.ornateLavaPool.draw(map, x, y, w);
+						Structure.ornateLavaPool.draw(map, x, y);
 				}
 			}
 		}
-
-		return new short[][] { map, data };
 	}
 
+	private static void generateUndergroundChunk(ChunkManager map, int chunkX, int chunkY, int depth) {
+		random.setSeed(worldSeed);
+		noise.setSeed(worldSeed);
+		int S = ChunkManager.CHUNK_SIZE;
+		LevelGen mnoise1 = new LevelGen(chunkX * S, chunkY * S, S, S, 16, depth * 11 + 0);
+		LevelGen mnoise2 = new LevelGen(chunkX * S, chunkY * S, S, S, 16, depth * 11 + 1);
+		LevelGen mnoise3 = new LevelGen(chunkX * S, chunkY * S, S, S, 16, depth * 11 + 2);
 
-	private static short[][] createUndergroundMap(int w, int h, int depth) {
-		LevelGen mnoise1 = new LevelGen(w, h, 16);
-		LevelGen mnoise2 = new LevelGen(w, h, 16);
-		LevelGen mnoise3 = new LevelGen(w, h, 16);
+		LevelGen nnoise1 = new LevelGen(chunkX * S, chunkY * S, S, S, 16, depth * 11 + 3);
+		LevelGen nnoise2 = new LevelGen(chunkX * S, chunkY * S, S, S, 16, depth * 11 + 4);
+		LevelGen nnoise3 = new LevelGen(chunkX * S, chunkY * S, S, S, 16, depth * 11 + 5);
 
-		LevelGen nnoise1 = new LevelGen(w, h, 16);
-		LevelGen nnoise2 = new LevelGen(w, h, 16);
-		LevelGen nnoise3 = new LevelGen(w, h, 16);
+		LevelGen wnoise1 = new LevelGen(chunkX * S, chunkY * S, S, S, 16, depth * 11 + 6);
+		LevelGen wnoise2 = new LevelGen(chunkX * S, chunkY * S, S, S, 16, depth * 11 + 7);
+		LevelGen wnoise3 = new LevelGen(chunkX * S, chunkY * S, S, S, 16, depth * 11 + 8);
 
-		LevelGen wnoise1 = new LevelGen(w, h, 16);
-		LevelGen wnoise2 = new LevelGen(w, h, 16);
-		LevelGen wnoise3 = new LevelGen(w, h, 16);
+		LevelGen noise1 = new LevelGen(chunkX * S, chunkY * S, S, S, 32, depth * 11 + 9);
+		LevelGen noise2 = new LevelGen(chunkX * S, chunkY * S, S, S, 32, depth * 11 + 10);
 
-		LevelGen noise1 = new LevelGen(w, h, 32);
-		LevelGen noise2 = new LevelGen(w, h, 32);
-
-		short[] map = new short[w * h];
-		short[] data = new short[w * h];
-		for (int y = 0; y < h; y++) {
-			for (int x = 0; x < w; x++) {
-				int i = x + y * w;
-
-				/// for the x=0 or y=0 i's, values[i] is always between -1 and 1.
-				/// so, val is between -2 and 4.
-				/// the rest are between -2 and 7.
+		int tileX = chunkX * S, tileY = chunkY * S;
+		for(int y = tileY; y < tileY + S; y++) {
+			for(int x = tileX; x < tileX + S; x++) {
+				int i = (x - tileX) + (y - tileY) * S;
 
 				double val = Math.abs(noise1.values[i] - noise2.values[i]) * 3 - 2;
 
@@ -582,172 +442,128 @@ public class LevelGen {
 				double wval = Math.abs(wnoise1.values[i] - wnoise2.values[i]);
 				wval = Math.abs(wval - wnoise3.values[i]) * 3 - 2;
 
-				double xd = x / (w - 1.0) * 2 - 1;
-				double yd = y / (h - 1.0) * 2 - 1;
-				if (xd < 0) xd = -xd;
-				if (yd < 0) yd = -yd;
-				double dist = Math.max(xd, yd);
-				dist = Math.pow(dist, 8);
-				val += 1 - dist * 20;
-
 				if (val > -1 && wval < -1 + (depth) / 2.0 * 3) {
-					if (depth == 3) map[i] = Tiles.get("lava").id;
-					else if (depth == 1) map[i] = Tiles.get("dirt").id;
-					else map[i] = Tiles.get("water").id;
+					if (depth == 3) map.setTile(x, y, Tiles.get("lava"), 0);
+					else if (depth == 1) map.setTile(x, y, Tiles.get("dirt"), 0);
+					else map.setTile(x, y, Tiles.get("water"), 0);
 
 				} else if (val > -2 && (mval < -1.7 || nval < -1.4)) {
-					map[i] = Tiles.get("dirt").id;
+					map.setTile(x, y, Tiles.get("dirt"), 0);
 
 				} else {
-					map[i] = Tiles.get("rock").id;
-
+					map.setTile(x, y, Tiles.get("rock"), 0);
 				}
 			}
 		}
 		{
 			int r = 2;
-			for (int i = 0; i < w * h / 400; i++) {
-				int x = random.nextInt(w);
-				int y = random.nextInt(h);
+			for (int i = 0; i < S * S / 200; i++) {
+				int x = tileX + random.nextInt(S);
+				int y = tileY + random.nextInt(S);
 				for (int j = 0; j < 30; j++) {
 					int xx = x + random.nextInt(5) - random.nextInt(5);
 					int yy = y + random.nextInt(5) - random.nextInt(5);
-					if (xx >= r && yy >= r && xx < w - r && yy < h - r) {
-						if (map[xx + yy * w] == Tiles.get("rock").id) {
-							map[xx + yy * w] = (short) ((Tiles.get("iron Ore").id & 0xffff) + depth - 1);
+					// if (xx >= r && yy >= r && xx < S - r && yy < S - r) {
+						if (map.getTile(xx, yy) == Tiles.get("rock")) {
+							map.setTile(xx, yy, Tiles.get((short)(Tiles.get("iron Ore").id + depth - 1)), 0);
 						}
-					}
+					// }
 				}
 				for (int j = 0; j < 10; j++) {
 					int xx = x + random.nextInt(3) - random.nextInt(2);
 					int yy = y + random.nextInt(3) - random.nextInt(2);
-					if (xx >= r && yy >= r && xx < w - r && yy < h - r) {
-						if (map[xx + yy * w] == Tiles.get("rock").id) {
-							map[xx + yy * w] = (short) (Tiles.get("Lapis").id & 0xffff);
+					// if (xx >= r && yy >= r && xx < S - r && yy < S - r) {
+						if (map.getTile(xx, yy) == Tiles.get("rock")) {
+							map.setTile(xx, yy, Tiles.get("Lapis"), 0);
 						}
-					}
+					// }
 				}
 			}
-		}
-
-		if (depth > 2) { // The level above dungeon.
-			int r = 1;
-			int xm = w / 2;
-			int ym = h / 2;
-			int side = 6; // The side of the lock is 5, and pluses margin with 1.
-			int edgeMargin = w / 20; // The distance between the world enge and the lock sides.
-			Rectangle lockRect = new Rectangle(0, 0, side, side, 0);
-			Rectangle bossRoomRect = new Rectangle(xm, ym, 20, 20, Rectangle.CENTER_DIMS);
-			do { // Trying to generate a lock not intersecting to the boss room in the dungeon.
-				int xx = random.nextInt(w);
-				int yy = random.nextInt(h);
-				lockRect.setPosition(xx, yy, RelPos.CENTER);
-				if (lockRect.getTop() > edgeMargin && lockRect.getLeft() > edgeMargin &&
-					lockRect.getRight() < w - edgeMargin && lockRect.getBottom() < h - edgeMargin &&
-					!lockRect.intersects(bossRoomRect)) {
-
-					Structure.dungeonLock.draw(map, xx, yy, w);
-
-					/// The "& 0xffff" is a common way to convert a short to an unsigned int, which basically prevents negative values... except... this doesn't do anything if you flip it back to a short again...
-					map[xx + yy * w] = (short) (Tiles.get("Stairs Down").id & 0xffff);
-					break; // The generation is successful.
-				}
-			} while (true);
 		}
 
 		if (depth < 3) {
 			int count = 0;
 			stairsLoop:
-			for (int i = 0; i < w * h / 100; i++) {
-				int x = random.nextInt(w - 20) + 10;
-				int y = random.nextInt(h - 20) + 10;
+			for (int i = 0; i < S * S / 100; i++) {
+				int x = tileX + random.nextInt(S);
+				int y = tileY + random.nextInt(S);
 
 				for (int yy = y - 1; yy <= y + 1; yy++)
 					for (int xx = x - 1; xx <= x + 1; xx++)
-						if (map[xx + yy * w] != Tiles.get("rock").id) continue stairsLoop;
+						if (map.getTile(xx, yy) != Tiles.get("rock")) continue stairsLoop;
 
 				// This should prevent any stairsDown tile from being within 30 tiles of any other stairsDown tile.
-				for (int yy = Math.max(0, y - stairRadius); yy <= Math.min(h - 1, y + stairRadius); yy++)
-					for (int xx = Math.max(0, x - stairRadius); xx <= Math.min(w - 1, x + stairRadius); xx++)
-						if (map[xx + yy * w] == Tiles.get("Stairs Down").id) continue stairsLoop;
+				for (int yy = Math.max(0, y - stairRadius); yy <= Math.min(S - 1, y + stairRadius); yy++)
+					for (int xx = Math.max(0, x - stairRadius); xx <= Math.min(S - 1, x + stairRadius); xx++)
+						if (map.getTile(xx, yy) == Tiles.get("Stairs Down")) continue stairsLoop;
 
-				map[x + y * w] = Tiles.get("Stairs Down").id;
+				map.setTile(x, y, Tiles.get("Stairs Down"), 0);
 				count++;
-				if (count >= w / 32) break;
+				if (count >= S / 32) break;
 			}
 		}
 
-		return new short[][] { map, data };
 	}
 
-	private static short[][] createSkyMap(int w, int h) {
-		LevelGen noise1 = new LevelGen(w, h, 8);
-		LevelGen noise2 = new LevelGen(w, h, 8);
+	private static void generateSkyChunk(ChunkManager map, int chunkX, int chunkY) {
+		int S = ChunkManager.CHUNK_SIZE;
+		LevelGen noise1 = new LevelGen(S * chunkX, S * chunkY, S, S, 8, 0);
+		LevelGen noise2 = new LevelGen(S * chunkX, S * chunkY, S, S, 8, 1);
 
-		short[] map = new short[w * h];
-		short[] data = new short[w * h];
-
-		for (int y = 0; y < h; y++) {
-			for (int x = 0; x < w; x++) {
-				int i = x + y * w;
+		int tileX = chunkX * S, tileY = chunkY * S;
+		for(int y = tileY; y < tileY + S; y++) {
+			for(int x = tileX; x < tileX + S; x++) {
+				int i = (x - tileX) + (y - tileY) * S;
 
 				double val = Math.abs(noise1.values[i] - noise2.values[i]) * 3 - 2;
 
-				double xd = x / (w - 1.0) * 2 - 1;
-				double yd = y / (h - 1.0) * 2 - 1;
-				if (xd < 0) xd = -xd;
-				if (yd < 0) yd = -yd;
-				double dist = Math.max(xd, yd);
-				dist = dist * dist * dist * dist;
-				dist = dist * dist * dist * dist;
+				double dist = 0;
 				val = -val * 1 - 2.2;
-				val += 1 - dist * 20;
+				val += 1.75 - dist * 20;
 
 				if (val < -0.25) {
-					map[i] = Tiles.get("Infinite Fall").id;
+					map.setTile(x, y, Tiles.get("Infinite Fall"), 0);
 				} else {
-					map[i] = Tiles.get("cloud").id;
+					map.setTile(x, y, Tiles.get("cloud"), 0);
 				}
 			}
 		}
 
 		stairsLoop:
-		for (int i = 0; i < w * h / 50; i++) {
-			int x = random.nextInt(w - 2) + 1;
-			int y = random.nextInt(h - 2) + 1;
+		for (int i = 0; i < S * S / 50; i++) {
+			int x = tileX + random.nextInt(S - 2) + 1;
+			int y = tileY + random.nextInt(S - 2) + 1;
 
 			for (int yy = y - 1; yy <= y + 1; yy++) {
 				for (int xx = x - 1; xx <= x + 1; xx++) {
-					if (map[xx + yy * w] == Tiles.get("Infinite Fall").id) continue stairsLoop;
+					if (map.getTile(xx, yy) == Tiles.get("Infinite Fall")) continue stairsLoop;
 				}
 			}
 
-			map[x + y * w] = Tiles.get("Cloud Cactus").id;
+			map.setTile(x, y, Tiles.get("Cloud Cactus"), 0);
 		}
 
 		int count = 0;
 		stairsLoop:
-		for (int i = 0; i < w * h; i++) {
-			int x = random.nextInt(w - 2) + 1;
-			int y = random.nextInt(h - 2) + 1;
+		for (int i = 0; i < S * S; i++) {
+			int x = random.nextInt(S - 2) + 1;
+			int y = random.nextInt(S - 2) + 1;
 
 			for (int yy = y - 1; yy <= y + 1; yy++) {
 				for (int xx = x - 1; xx <= x + 1; xx++) {
-					if (map[xx + yy * w] != Tiles.get("cloud").id) continue stairsLoop;
+					if (map.getTile(xx, yy) != Tiles.get("cloud")) continue stairsLoop;
 				}
 			}
 
 			// This should prevent any stairsDown tile from being within 30 tiles of any other stairsDown tile.
-			for (int yy = Math.max(0, y - stairRadius); yy <= Math.min(h - 1, y + stairRadius); yy++)
-				for (int xx = Math.max(0, x - stairRadius); xx <= Math.min(w - 1, x + stairRadius); xx++)
-					if (map[xx + yy * w] == Tiles.get("Stairs Down").id) continue stairsLoop;
+			for (int yy = Math.max(0, y - stairRadius); yy <= Math.min(S - 1, y + stairRadius); yy++)
+				for (int xx = Math.max(0, x - stairRadius); xx <= Math.min(S - 1, x + stairRadius); xx++)
+					if (map.getTile(xx, yy) == Tiles.get("Stairs Down")) continue stairsLoop;
 
-			map[x + y * w] = Tiles.get("Stairs Down").id;
+			map.setTile(x, y, Tiles.get("Stairs Down"), 0);
 			count++;
-			if (count >= w / 64) break;
+			if (count >= S / 64) break;
 		}
-
-		return new short[][] { map, data };
 	}
 
 	public static void main(String[] args) {
@@ -790,10 +606,9 @@ public class LevelGen {
 			int lvl = maplvls[idx++ % maplvls.length];
 			if (lvl > 1 || lvl < -4) continue;
 
-			short[][] fullmap = LevelGen.createAndValidateMap(w, h, lvl, LevelGen.worldSeed);
+			ChunkManager map = LevelGen.createAndValidateMap(w, h, lvl, LevelGen.worldSeed);
 
-			if (fullmap == null) continue;
-			short[] map = fullmap[0];
+			if (map == null) continue;
 
 			BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_RGB);
 			int[] pixels = new int[w * h];
@@ -801,25 +616,25 @@ public class LevelGen {
 				for (int x = 0; x < w; x++) {
 					int i = x + y * w;
 
-					if (map[i] == Tiles.get("water").id) pixels[i] = 0x000080;
-					if (map[i] == Tiles.get("iron Ore").id) pixels[i] = 0x000080;
-					if (map[i] == Tiles.get("gold Ore").id) pixels[i] = 0x000080;
-					if (map[i] == Tiles.get("gem Ore").id) pixels[i] = 0x000080;
-					if (map[i] == Tiles.get("grass").id) pixels[i] = 0x208020;
-					if (map[i] == Tiles.get("rock").id) pixels[i] = 0xa0a0a0;
-					if (map[i] == Tiles.get("dirt").id) pixels[i] = 0x604040;
-					if (map[i] == Tiles.get("sand").id) pixels[i] = 0xa0a040;
-					if (map[i] == Tiles.get("Stone Bricks").id) pixels[i] = 0xa0a040;
-					if (map[i] == Tiles.get("tree").id) pixels[i] = 0x003000;
-					if (map[i] == Tiles.get("Obsidian Wall").id) pixels[i] = 0x0aa0a0;
-					if (map[i] == Tiles.get("Obsidian").id) pixels[i] = 0x000000;
-					if (map[i] == Tiles.get("lava").id) pixels[i] = 0xffff2020;
-					if (map[i] == Tiles.get("cloud").id) pixels[i] = 0xa0a0a0;
-					if (map[i] == Tiles.get("Stairs Down").id) pixels[i] = 0xffffffff;
-					if (map[i] == Tiles.get("Stairs Up").id) pixels[i] = 0xffffffff;
-					if (map[i] == Tiles.get("Cloud Cactus").id) pixels[i] = 0xffff00ff;
-					if (map[i] == Tiles.get("Ornate Obsidian").id) pixels[i] = 0x000f0a;
-					if (map[i] == Tiles.get("Raw Obsidian").id) pixels[i] = 0x0a0080;
+					if (map.getTile(x, y) == Tiles.get("water")) pixels[i] = 0x000080;
+					if (map.getTile(x, y) == Tiles.get("iron Ore")) pixels[i] = 0x000080;
+					if (map.getTile(x, y) == Tiles.get("gold Ore")) pixels[i] = 0x000080;
+					if (map.getTile(x, y) == Tiles.get("gem Ore")) pixels[i] = 0x000080;
+					if (map.getTile(x, y) == Tiles.get("grass")) pixels[i] = 0x208020;
+					if (map.getTile(x, y) == Tiles.get("rock")) pixels[i] = 0xa0a0a0;
+					if (map.getTile(x, y) == Tiles.get("dirt")) pixels[i] = 0x604040;
+					if (map.getTile(x, y) == Tiles.get("sand")) pixels[i] = 0xa0a040;
+					if (map.getTile(x, y) == Tiles.get("Stone Bricks")) pixels[i] = 0xa0a040;
+					if (map.getTile(x, y) == Tiles.get("tree")) pixels[i] = 0x003000;
+					if (map.getTile(x, y) == Tiles.get("Obsidian Wall")) pixels[i] = 0x0aa0a0;
+					if (map.getTile(x, y) == Tiles.get("Obsidian")) pixels[i] = 0x000000;
+					if (map.getTile(x, y) == Tiles.get("lava")) pixels[i] = 0xffff2020;
+					if (map.getTile(x, y) == Tiles.get("cloud")) pixels[i] = 0xa0a0a0;
+					if (map.getTile(x, y) == Tiles.get("Stairs Down")) pixels[i] = 0xffffffff;
+					if (map.getTile(x, y) == Tiles.get("Stairs Up")) pixels[i] = 0xffffffff;
+					if (map.getTile(x, y) == Tiles.get("Cloud Cactus")) pixels[i] = 0xffff00ff;
+					if (map.getTile(x, y) == Tiles.get("Ornate Obsidian")) pixels[i] = 0x000f0a;
+					if (map.getTile(x, y) == Tiles.get("Raw Obsidian")) pixels[i] = 0x0a0080;
 				}
 			}
 			img.setRGB(0, 0, w, h, pixels, 0, w);
@@ -830,4 +645,6 @@ public class LevelGen {
 			else LevelGen.worldSeed++;
 		}
 	}
+
+	// Used to easily interface with a list of chunks
 }
