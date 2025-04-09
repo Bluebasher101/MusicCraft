@@ -13,6 +13,7 @@ import minicraft.screen.ResourcePackDisplay;
 import minicraft.screen.TitleDisplay;
 import minicraft.util.Logging;
 import org.jetbrains.annotations.Nullable;
+import minicraft.core.io.Music;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -126,6 +127,7 @@ public class Game {
 		}
 
 		Initializer.launchWindow();
+		Music.PlayRandomMusicLoop();
 		// Actually start the game.
 		Initializer.run();
 
